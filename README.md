@@ -6,7 +6,7 @@ cheap detectors watch every step for the instabilities people actually hit when 
 
 talks to a local model via ollama (built against qwen3.5 9b) or to gemini.
 
-## hwo it works
+## how it works
 
 ```
  train step (jit) --> per-layer stats --> detectors (every step, ~free)
@@ -20,4 +20,3 @@ talks to a local model via ollama (built against qwen3.5 9b) or to gemini.
                         validate patch -> apply -> rewind to ckpt -> resume
 ```
 
-wip, no results yet.
