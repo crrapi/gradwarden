@@ -27,3 +27,34 @@ for reference the default config (lr 3e-3 w/ warmup) peaks around 27 by step 250
 so without qk-norm the attention logits just keep growing and attention goes one-hot (entropy -> 0), and loss gets worse as lr goes up. with qk-norm, logits stay < ~30 and higher lr actually helps. same story as the paper, just tiny.
 
 at lr 3e-2 the logits are already at 689 by step 40. the blowup is fast.
+
+## thresholds
+
+picked from the probe above, not tuned on the demo runs:
+
+- attn_logit_growth: 200. healthy runs stay under ~30, the bad ones blow past 200 in the first 50 steps
+- attn_entropy_collapse: 0.02 (normalized). healthy is 0.4-0.6
+- log Z: |mean| > 30. never saw this fire here, all runs sat at 4-6. leaving it in bc wortsman shows it at bigger scale
+- loss / grad spikes: EMA z-score > 5 after 50 warmup steps, outliers not absorbed (zclip style)
+
+## llm backend notes
+
+- qwen3.5:9b-text on ollama over the lan w/ partial gpu offload. ~4-8 tok/s gen, ~200-270 tok/s prompt
+- one request slot shared w/ other stuff, so calls queue. first test call took 123s total, ~10s of that was actual compute
+- dont send num_ctx or keep_alive, it reloads the model for everyone
+- think=false, tool calls dont need thinking
+- tool calling thru ollama's qwen parser works fine, returns proper `tool_calls`
+- bc its slow: the agent gets an "incident brief" up front (alert + config + downsampled trajectories + per layer stats) so it can usually answer in 1 call. tools are there if it wants to dig
+- if the model doesnt decide after 2 nudges it falls back to the rule table and the log says so (`fallback_used`)
+
+## refs
+
+- wortsman et al 2023, small-scale proxies for large-scale transformer training instabilities. https://arxiv.org/abs/2309.14322
+- dehghani et al 2023, scaling vision transformers to 22b params (qk-layernorm)
+- zhai et al 2023, stabilizing transformer training by preventing attention entropy collapse. https://arxiv.org/abs/2303.06296
+- chowdhery et al 2022, palm (z-loss)
+- kumar et al 2025, zclip: adaptive spike mitigation for llm pre-training. https://arxiv.org/abs/2504.02507
+
+## sweep (600 steps, warmup 100, no clip)
+
+see readme table. short version: baseline best = 1.899 @ 3e-3, qk-norm best = 1.774 @ 1e-2, and qk-norm keeps max attn logit < 25 at every lr up to 0.3 (baseline hits 333k).
