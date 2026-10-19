@@ -1,0 +1,35 @@
+{
+  "final_step": 599,
+  "final_loss": 2.462597370147705,
+  "final_val_loss": 2.457300066947937,
+  "alerts": 42,
+  "interventions": [],
+  "final_config": {
+    "model": {
+      "vocab_size": 65,
+      "d_model": 128,
+      "n_layers": 4,
+      "n_heads": 4,
+      "d_ff": 512,
+      "seq_len": 128,
+      "qk_norm": false
+    },
+    "train": {
+      "lr": 0.03,
+      "warmup_steps": 100,
+      "total_steps": 600,
+      "min_lr_ratio": 0.1,
+      "batch_size": 32,
+      "weight_decay": 0.1,
+      "b1": 0.9,
+      "b2": 0.95,
+      "eps": 1e-08,
+      "clip_norm": null,
+      "z_loss": 0.0,
+      "seed": 0,
+      "eval_every": 50,
+      "eval_batches": 4,
+      "checkpoint_every": 25
+    }
+  }
+}

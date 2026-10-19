@@ -1,0 +1,98 @@
+[
+  {
+    "variant": "baseline",
+    "lr": 0.001,
+    "final_val_loss": 2.132261097431183,
+    "final_train_loss": 2.0696725845336914,
+    "max_attn_logit": 31.189260482788086,
+    "min_attn_entropy": 0.561851441860199
+  },
+  {
+    "variant": "baseline",
+    "lr": 0.003,
+    "final_val_loss": 1.8991856575012207,
+    "final_train_loss": 1.7550625801086426,
+    "max_attn_logit": 64.27665710449219,
+    "min_attn_entropy": 0.3693404495716095
+  },
+  {
+    "variant": "baseline",
+    "lr": 0.01,
+    "final_val_loss": 1.9100660979747772,
+    "final_train_loss": 1.764521837234497,
+    "max_attn_logit": 189.1377716064453,
+    "min_attn_entropy": 0.2045234888792038
+  },
+  {
+    "variant": "baseline",
+    "lr": 0.03,
+    "final_val_loss": 2.457300066947937,
+    "final_train_loss": 2.462597370147705,
+    "max_attn_logit": 1677.5413818359375,
+    "min_attn_entropy": 0.009795303456485271
+  },
+  {
+    "variant": "baseline",
+    "lr": 0.1,
+    "final_val_loss": 2.751259207725525,
+    "final_train_loss": 2.76680850982666,
+    "max_attn_logit": 25057.1328125,
+    "min_attn_entropy": 0.00037423474714159966
+  },
+  {
+    "variant": "baseline",
+    "lr": 0.3,
+    "final_val_loss": 3.023352801799774,
+    "final_train_loss": 2.9913759231567383,
+    "max_attn_logit": 332966.09375,
+    "min_attn_entropy": 4.097738201380707e-05
+  },
+  {
+    "variant": "qk_norm",
+    "lr": 0.001,
+    "final_val_loss": 2.1809240579605103,
+    "final_train_loss": 2.1249566078186035,
+    "max_attn_logit": 6.263627052307129,
+    "min_attn_entropy": 0.7624943256378174
+  },
+  {
+    "variant": "qk_norm",
+    "lr": 0.003,
+    "final_val_loss": 1.9309983849525452,
+    "final_train_loss": 1.793678879737854,
+    "max_attn_logit": 8.148079872131348,
+    "min_attn_entropy": 0.5735941529273987
+  },
+  {
+    "variant": "qk_norm",
+    "lr": 0.01,
+    "final_val_loss": 1.7743081748485565,
+    "final_train_loss": 1.610939621925354,
+    "max_attn_logit": 11.807783126831055,
+    "min_attn_entropy": 0.37266579270362854
+  },
+  {
+    "variant": "qk_norm",
+    "lr": 0.03,
+    "final_val_loss": 1.7920079827308655,
+    "final_train_loss": 1.6392512321472168,
+    "max_attn_logit": 13.908445358276367,
+    "min_attn_entropy": 0.2785904109477997
+  },
+  {
+    "variant": "qk_norm",
+    "lr": 0.1,
+    "final_val_loss": 1.8864972591400146,
+    "final_train_loss": 1.7347533702850342,
+    "max_attn_logit": 17.573822021484375,
+    "min_attn_entropy": 0.30492696166038513
+  },
+  {
+    "variant": "qk_norm",
+    "lr": 0.3,
+    "final_val_loss": 2.0947153568267822,
+    "final_train_loss": 2.0307116508483887,
+    "max_attn_logit": 22.06146240234375,
+    "min_attn_entropy": 0.33104923367500305
+  }
+]

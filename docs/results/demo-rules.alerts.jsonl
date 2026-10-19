@@ -1,0 +1,1 @@
+{"step": 92, "kind": "attn_logit_growth", "severity": "critical", "value": 207.549072265625, "threshold": 200.0, "message": "attn_logit_max=207.5 in layer 1 is above 200", "layer": 1}
