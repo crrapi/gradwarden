@@ -12,6 +12,10 @@ stream. these do, and only wake the agent when something trips.
   output_logit_divergence  log Z drifts far from 0, happens before output logits
                            blow up (wortsman 2023). z-loss fixes it
   AdamEpsilon              grad rms near adam eps so updates shrink (wortsman 3.4)
+  ValDivergence            val loss going up for a few evals in a row while train
+                           keeps going down. warn only, mostly for long runs
+  GrowthForecast           (forecast.py) log-linear fit on attn logits, warns before
+                           the threshold one fires
 
 thresholds all came from probe runs on tinyshakespeare, numbers in docs/NOTES.md
 """
@@ -208,6 +212,50 @@ class AdamEpsilon(Detector):
 
 
 @dataclass
+class ValDivergence(Detector):
+    # val_loss only shows up every eval_every steps so this one counts evals not steps
+    patience: int = 3
+    margin: float = 0.02
+    kind = "val_divergence"
+    _best: float = math.inf
+    _bad: int = 0
+    _history: list[tuple[int, float, int]] = field(default_factory=list)
+
+    def update(self, record):
+        val = record.get("val_loss")
+        if val is None or not math.isfinite(val):
+            return []
+        if val < self._best:
+            self._best, self._bad = val, 0
+        elif val > self._best + self.margin:
+            self._bad += 1
+        self._history.append((record["step"], self._best, self._bad))
+        if self._bad < self.patience:
+            return []
+        return [
+            Alert(
+                step=record["step"],
+                kind=self.kind,
+                severity="warn",
+                value=val,
+                threshold=self._best + self.margin,
+                message=(
+                    f"val_loss={val:.4g} has been above the best ({self._best:.4g}) "
+                    f"for {self._bad} evals"
+                ),
+            )
+        ]
+
+    def reset_after(self, step):
+        kept = [h for h in self._history if h[0] < step]
+        self._history = kept
+        if kept:
+            _, self._best, self._bad = kept[-1]
+        else:
+            self._best, self._bad = math.inf, 0
+
+
+@dataclass
 class DetectorSuite:
     detectors: list[Detector]
     # after one alert of a given kind, mute that kind for this many steps.
@@ -216,7 +264,11 @@ class DetectorSuite:
     _last_fired: dict[str, int] = field(default_factory=dict)
 
     @classmethod
-    def default(cls, eps: float = 1e-8) -> DetectorSuite:
+    def default(cls, eps: float = 1e-8, early: bool = False) -> DetectorSuite:
+        """early=True makes the logit forecast critical, so the policy gets woken up
+        before the threshold detector would fire"""
+        from gradwarden.forecast import GrowthForecast  # forecast imports Detector from here
+
         return cls(
             detectors=[
                 NonFinite(),
@@ -233,6 +285,8 @@ class DetectorSuite:
                 ),
                 AbsThreshold(metric="log_z_mean", threshold=30.0),
                 AdamEpsilon(eps=eps),
+                ValDivergence(),
+                GrowthForecast(severity="critical" if early else "warn"),
             ]
         )
 
