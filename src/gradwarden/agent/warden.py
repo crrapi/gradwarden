@@ -30,6 +30,9 @@ Known failure modes and standard fixes:
 - attn_logit_growth / attn_entropy_collapse: attention logits grow without bound
   and attention becomes one-hot (Dehghani et al. 2023, Zhai et al. 2023,
   Wortsman et al. 2023). Fix: qk_norm=true. Lowering lr also helps but costs speed.
+- attn_logit_forecast: early warning. logits are still under the hard threshold but
+  growing exponentially and projected to cross it soon. Same fix as attn_logit_growth,
+  and the rewind can be short because nothing has broken yet.
 - output_logit_divergence: the softmax normalizer log Z drifts far from 0
   (Wortsman et al. 2023). Fix: z_loss=1e-4.
 - loss_spike / grad_norm_spike without the above: usually too high a learning rate
@@ -37,6 +40,8 @@ Known failure modes and standard fixes:
   if warmup_steps is 0.
 - non_finite: the run already diverged. Rewind well before the blow-up and lower lr.
 - adam_epsilon: gradient RMS near Adam eps shrinks updates. Fix: lower eps (e.g. 1e-15).
+- val_divergence: val loss rising while train loss falls. Usually overfitting, not an
+  instability. More weight_decay or declare_no_action.
 
 Rules:
 - Prefer the smallest change that addresses the root cause.
@@ -136,8 +141,8 @@ class RulePolicy:
         train_cfg = toolbox.store.config.get("train", {})
         lr = float(train_cfg.get("lr", 1e-3))
         kind = alert.kind
-        if kind in ("attn_logit_growth", "attn_entropy_collapse"):
-            metric = "attn_logit_max" if kind == "attn_logit_growth" else "attn_entropy"
+        if kind in ("attn_logit_growth", "attn_entropy_collapse", "attn_logit_forecast"):
+            metric = "attn_entropy" if kind == "attn_entropy_collapse" else "attn_logit_max"
             changes: dict[str, Any] = {"qk_norm": True}
             rewind = self._rewind_point(alert, toolbox, metric)
         elif kind == "output_logit_divergence":
