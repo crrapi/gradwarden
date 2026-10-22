@@ -9,6 +9,7 @@ import time
 from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 import jax
@@ -16,6 +17,7 @@ import jax.numpy as jnp
 import numpy as np
 import optax
 
+from gradwarden import ckpt as disk
 from gradwarden.config import RunConfig, TrainConfig, apply_patch
 from gradwarden.data import CharDataset
 from gradwarden.model import Transformer, init_params
@@ -144,6 +146,11 @@ class Trainer:
     opt_state: Any = None
     checkpoints: deque = field(default_factory=deque)
     history: list[dict[str, Any]] = field(default_factory=list)
+    # mirror ckpts to disk too (see ckpt.py). None = memory only like before
+    ckpt_dir: Path | None = None
+    # resume() turns this off, otherwise building the trainer would write a fresh
+    # random init over the real step 0 ckpt
+    save_initial: bool = True
 
     def __post_init__(self):
         if self.cfg.model.vocab_size != self.data.vocab_size:
@@ -154,7 +161,10 @@ class Trainer:
         self.params = init_params(self.cfg.model, self.cfg.train.seed)
         self._build()
         self.opt_state = self.opt.init(self.params)
-        self._save_checkpoint()
+        if self.ckpt_dir is not None:
+            self.ckpt_dir = Path(self.ckpt_dir)
+        if self.save_initial:
+            self._save_checkpoint()
 
     def _build(self):
         self.opt = make_optimizer(self.cfg.train)
@@ -172,6 +182,9 @@ class Trainer:
         self.checkpoints.append(ckpt)
         while len(self.checkpoints) > self.max_checkpoints:
             self.checkpoints.popleft()
+        if self.ckpt_dir is not None:
+            disk.save(self.ckpt_dir, ckpt.step, ckpt.params, ckpt.opt_state, ckpt.config)
+            disk.prune(self.ckpt_dir, self.max_checkpoints)
 
     def train_step(self) -> dict[str, Any]:
         tc = self.cfg.train
@@ -221,6 +234,8 @@ class Trainer:
         self.step = ckpt.step
         while self.checkpoints and self.checkpoints[-1].step > ckpt.step:
             self.checkpoints.pop()
+        if self.ckpt_dir is not None:
+            disk.delete_after(self.ckpt_dir, ckpt.step)
         self.history = [r for r in self.history if r["step"] < ckpt.step]
         return ckpt.step
 
@@ -229,6 +244,37 @@ class Trainer:
         self.cfg = apply_patch(self.cfg, changes)
         self._build()
         return self.cfg
+
+    @classmethod
+    def resume(
+        cls, ckpt_dir: str | Path, data: CharDataset, step: int | None = None, **kw
+    ) -> Trainer:
+        """rebuild a trainer from disk ckpts. step=None -> newest one.
+
+        the config comes from the ckpt json, so if the run got patched before it died
+        you get the patched config back, not whatever was on the cli
+        """
+        ckpt_dir = Path(ckpt_dir)
+        steps = disk.list_steps(ckpt_dir)
+        if not steps:
+            raise FileNotFoundError(f"no checkpoints in {ckpt_dir}")
+        if step is None:
+            step = steps[-1]
+        elif step not in steps:
+            raise ValueError(f"no checkpoint for step {step}, have {steps}")
+        cfg = disk.load_config(ckpt_dir, step)
+        tr = cls(cfg, data, ckpt_dir=ckpt_dir, save_initial=False, **kw)
+        disk.delete_after(ckpt_dir, step)
+        # refill the in memory ring so the agent still has rewind targets
+        for s in [s for s in steps if s <= step][-tr.max_checkpoints :]:
+            c = disk.load_config(ckpt_dir, s)
+            # opt state tree only depends on the param tree + the chain structure,
+            # and patches never change either (see NO_CLIP / qk_norm notes)
+            params, opt_state = disk.restore(ckpt_dir, s, tr.params, tr.opt_state)
+            tr.checkpoints.append(Checkpoint(step=s, params=params, opt_state=opt_state, config=c))
+        last = tr.checkpoints[-1]
+        tr.params, tr.opt_state, tr.step = last.params, last.opt_state, last.step
+        return tr
 
 
 def _finite(record: dict[str, Any]) -> bool:
