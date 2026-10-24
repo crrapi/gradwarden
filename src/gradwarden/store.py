@@ -36,6 +36,8 @@ class RunStore:
     abandoned: list[list[dict[str, Any]]] = field(default_factory=list)
     alerts: list[Alert] = field(default_factory=list)
     interventions: list[dict[str, Any]] = field(default_factory=list)
+    # did the patch hold? one entry per applied intervention, written by the session
+    followups: list[dict[str, Any]] = field(default_factory=list)
     config: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self):
@@ -67,6 +69,10 @@ class RunStore:
     def add_intervention(self, intervention: dict[str, Any]) -> None:
         self.interventions.append(intervention)
         self._append("interventions.jsonl", intervention)
+
+    def add_followup(self, followup: dict[str, Any]) -> None:
+        self.followups.append(followup)
+        self._append("followups.jsonl", followup)
 
     def rewind(self, to_step: int) -> None:
         kept = [r for r in self.records if r["step"] < to_step]
@@ -111,8 +117,9 @@ class RunStore:
         return None
 
     @classmethod
-    def load(cls, run_dir: str | Path) -> RunStore:
-        """load a run dir from disk (read only)"""
+    def load(cls, run_dir: str | Path, writable: bool = False) -> RunStore:
+        """load a run dir from disk. read only unless writable=True (resume uses that,
+        new records get appended to the same jsonl files)"""
         run_dir = Path(run_dir)
         store = cls()
         store.run_dir = None  # IMPORTANT: dont append to files we're reading from
@@ -125,6 +132,8 @@ class RunStore:
                 obj = json.loads(line)
                 if "rewind_to" in obj:
                     store.rewind(obj["rewind_to"])
+                elif "truncate_to" in obj:
+                    store.records = [r for r in store.records if r["step"] < obj["truncate_to"]]
                 else:
                     store.records.append(obj)
         alerts = run_dir / "alerts.jsonl"
@@ -133,4 +142,24 @@ class RunStore:
         iv = run_dir / "interventions.jsonl"
         if iv.exists():
             store.interventions = [json.loads(x) for x in iv.read_text().splitlines()]
+        fu = run_dir / "followups.jsonl"
+        if fu.exists():
+            store.followups = [json.loads(x) for x in fu.read_text().splitlines()]
+            for f in store.followups:
+                if f["intervention"] < len(store.interventions):
+                    store.interventions[f["intervention"]]["outcome"] = f["outcome"]
+        if writable:
+            store.run_dir = run_dir
         return store
+
+    def truncate(self, to_step: int) -> None:
+        """for resume: forget anything at or after to_step (the process died after the
+        ckpt so those records arent backed by any state). unlike rewind() these dont
+        go to abandoned, they just never happened"""
+        self.records = [r for r in self.records if r["step"] < to_step]
+        self.alerts = [a for a in self.alerts if a.step < to_step]
+        self._append("metrics.jsonl", {"truncate_to": to_step})
+        if self.run_dir is not None:
+            # alerts.jsonl has no markers so just rewrite it. its tiny
+            lines = "".join(json.dumps(a.to_dict()) + "\n" for a in self.alerts)
+            (self.run_dir / "alerts.jsonl").write_text(lines)
