@@ -127,6 +127,25 @@ class Toolbox:
                 out[key] = [[_r(x) for x in a[key]], [_r(x) for x in b[key]]]
         return {"steps": [int(step_a), int(step_b)], "values": out}
 
+    def get_intervention_history(self) -> dict[str, Any]:
+        """past patches in this run + whether they held. so the model doesnt just
+        propose qk_norm=true a second time when its already on"""
+        out = []
+        for i, iv in enumerate(self.store.interventions):
+            out.append(
+                {
+                    "n": i,
+                    "alert_step": iv.get("alert", {}).get("step"),
+                    "alert_kind": iv.get("alert", {}).get("kind"),
+                    "policy": iv.get("policy"),
+                    "changes": iv.get("changes"),
+                    "applied": iv.get("applied"),
+                    "restored_step": iv.get("restored_step"),
+                    "outcome": iv.get("outcome", "pending"),
+                }
+            )
+        return {"interventions": out}
+
     def propose_patch(
         self, changes: dict[str, Any], cause: str, rationale: str, rewind_to_step: int
     ) -> dict[str, Any]:
@@ -157,6 +176,7 @@ class Toolbox:
             "get_metric_window": self.get_metric_window,
             "get_layer_breakdown": self.get_layer_breakdown,
             "compare_steps": self.compare_steps,
+            "get_intervention_history": self.get_intervention_history,
             "propose_patch": self.propose_patch,
             "declare_no_action": self.declare_no_action,
         }
@@ -220,6 +240,14 @@ def tool_schemas() -> list[dict[str, Any]]:
                 "properties": {"step_a": {"type": "integer"}, "step_b": {"type": "integer"}},
                 "required": ["step_a", "step_b"],
             },
+        },
+        {
+            "name": "get_intervention_history",
+            "description": (
+                "Earlier patches in this run, what they changed, and whether the same "
+                "problem came back afterwards (outcome: held / refired / pending)."
+            ),
+            "parameters": {"type": "object", "properties": {}},
         },
         {
             "name": "propose_patch",

@@ -49,6 +49,9 @@ Rules:
   left its normal range), using one of the listed checkpoint steps.
 - If the alert is benign (a small blip that is already recovering), call
   declare_no_action.
+- If an earlier intervention for the same problem shows outcome=refired, that fix was
+  not enough. Do not repeat it; escalate (e.g. qk_norm is already on -> lower lr,
+  add clip_norm, or more warmup).
 - Be brief. Finish by calling propose_patch or declare_no_action.
 """
 
@@ -84,6 +87,15 @@ def incident_brief(alert: Alert, toolbox: Toolbox) -> str:
         for key in ("attn_logit_max", "attn_entropy", "act_rms"):
             if key in rec:
                 lines.append(f"  {key}: " + ", ".join(f"{v:.3g}" for v in rec[key]))
+    history = toolbox.get_intervention_history()["interventions"]
+    if history:
+        lines.append("")
+        lines.append("Previous interventions in this run:")
+        for h in history:
+            lines.append(
+                f"  step {h['alert_step']} {h['alert_kind']} -> {h['changes']} "
+                f"(applied={h['applied']}, outcome={h['outcome']})"
+            )
     return "\n".join(lines)
 
 
@@ -139,15 +151,32 @@ class RulePolicy:
 
     def decide(self, alert: Alert, toolbox: Toolbox) -> Diagnosis:
         train_cfg = toolbox.store.config.get("train", {})
+        model_cfg = toolbox.store.config.get("model", {})
         lr = float(train_cfg.get("lr", 1e-3))
         kind = alert.kind
+        note = ""
         if kind in ("attn_logit_growth", "attn_entropy_collapse", "attn_logit_forecast"):
             metric = "attn_entropy" if kind == "attn_entropy_collapse" else "attn_logit_max"
-            changes: dict[str, Any] = {"qk_norm": True}
+            if model_cfg.get("qk_norm"):
+                # already on and it came back anyway. next thing in the textbook is lr
+                changes: dict[str, Any] = {"lr": lr * 0.5}
+                if train_cfg.get("clip_norm") is None:
+                    changes["clip_norm"] = 1.0
+                note = " (qk_norm already on, escalating to lr)"
+            else:
+                changes = {"qk_norm": True}
             rewind = self._rewind_point(alert, toolbox, metric)
         elif kind == "output_logit_divergence":
-            changes = {"z_loss": 1e-4}
+            z = float(train_cfg.get("z_loss", 0.0))
+            changes = {"z_loss": min(z * 10, 1e-2) if z >= 1e-4 else 1e-4}
             rewind = self._rewind_point(alert, toolbox, "log_z_mean")
+        elif kind == "val_divergence":
+            wd = float(train_cfg.get("weight_decay", 0.1))
+            if wd >= 0.5:
+                toolbox.declare_no_action("val divergence w/ weight_decay already high")
+                return Diagnosis(decision=toolbox.decision, policy=self.name)
+            changes = {"weight_decay": min(wd * 2, 1.0)}
+            rewind = self._rewind_point(alert, toolbox, None)
         elif kind == "adam_epsilon":
             changes = {"eps": 1e-15}
             rewind = self._rewind_point(alert, toolbox, None)
@@ -160,7 +189,10 @@ class RulePolicy:
             eligible = [s for s in toolbox.checkpoint_steps if s <= rewind]
             rewind = eligible[-1] if eligible else 0
         result = toolbox.propose_patch(
-            changes, cause=kind, rationale=f"rule table entry for {kind}", rewind_to_step=rewind
+            changes,
+            cause=kind,
+            rationale=f"rule table entry for {kind}{note}",
+            rewind_to_step=rewind,
         )
         if not result["accepted"]:
             toolbox.declare_no_action(f"rule patch rejected: {result['problems']}")
