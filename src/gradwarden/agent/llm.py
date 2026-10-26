@@ -1,5 +1,6 @@
-"""chat backends w/ tool calling. ollama (local or lan), gemini, and a scripted
-fake for tests.
+"""chat backends w/ tool calling. ollama (local or lan), gemini, anything that
+speaks the openai chat completions api (llama.cpp server, vllm, lm studio, openrouter..),
+and a scripted fake for tests.
 
 one internal format (Message / ToolCall) that both backends get converted to/from,
 and both return LLMResponse w/ token counts so each diagnosis has a cost.
@@ -29,6 +30,8 @@ class Message:
     content: str = ""
     tool_calls: list[ToolCall] = field(default_factory=list)
     tool_name: str | None = None
+    # only openai style apis care about this. ollama/gemini match results by name
+    tool_call_id: str | None = None
 
 
 @dataclass
@@ -203,6 +206,101 @@ class GeminiBackend:
         )
 
 
+# OpenAI compatible
+
+
+@dataclass
+class OpenAIBackend:
+    """/v1/chat/completions w/ tools. base url from GRADWARDEN_OPENAI_BASE_URL, key
+    from GRADWARDEN_OPENAI_API_KEY (or OPENAI_API_KEY). local servers usually dont
+    need a key so its optional.
+
+    tool results have to reference the id of the call they answer. ollama doesnt
+    always give ids, so calls w/o one get call_0, call_1.. in order and tool msgs w/o
+    a tool_call_id take the next one off the queue. works bc the warden always
+    answers calls in the order they came in
+    """
+
+    model: str = field(
+        default_factory=lambda: os.environ.get("GRADWARDEN_OPENAI_MODEL", "gpt-4o-mini")
+    )
+    base_url: str = field(
+        default_factory=lambda: os.environ.get(
+            "GRADWARDEN_OPENAI_BASE_URL", "https://api.openai.com/v1"
+        )
+    )
+    api_key: str | None = field(
+        default_factory=lambda: (
+            os.environ.get("GRADWARDEN_OPENAI_API_KEY") or os.environ.get("OPENAI_API_KEY")
+        )
+    )
+    timeout_s: float = 300.0
+    temperature: float = 0.0
+    transport: httpx.BaseTransport | None = None
+    name: str = "openai"
+
+    def payload(self, messages: list[Message], tools: list[dict[str, Any]]) -> dict[str, Any]:
+        out = []
+        pending: list[str] = []
+        n = 0
+        for m in messages:
+            if m.role == "assistant":
+                msg: dict[str, Any] = {"role": "assistant", "content": m.content or None}
+                if m.tool_calls:
+                    calls = []
+                    for c in m.tool_calls:
+                        cid = c.id or f"call_{n}"
+                        n += 1
+                        pending.append(cid)
+                        calls.append(
+                            {
+                                "id": cid,
+                                "type": "function",
+                                "function": {"name": c.name, "arguments": json.dumps(c.arguments)},
+                            }
+                        )
+                    msg["tool_calls"] = calls
+                out.append(msg)
+            elif m.role == "tool":
+                cid = m.tool_call_id
+                if cid is None:
+                    cid = pending.pop(0) if pending else "call_unknown"
+                elif cid in pending:
+                    pending.remove(cid)
+                out.append({"role": "tool", "tool_call_id": cid, "content": m.content})
+            else:
+                out.append({"role": m.role, "content": m.content})
+        return {
+            "model": self.model,
+            "messages": out,
+            "tools": [{"type": "function", "function": t} for t in tools],
+            "temperature": self.temperature,
+        }
+
+    def chat(self, messages, tools):
+        headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
+        url = f"{self.base_url.rstrip('/')}/chat/completions"
+        with httpx.Client(timeout=self.timeout_s, transport=self.transport) as client:
+            resp = client.post(url, json=self.payload(messages, tools), headers=headers)
+            resp.raise_for_status()
+            data = resp.json()
+        raw = data["choices"][0]["message"]
+        calls = []
+        for c in raw.get("tool_calls") or []:
+            fn = c.get("function", {})
+            args = fn.get("arguments") or "{}"
+            # some servers send a dict here even tho the spec says string
+            if isinstance(args, str):
+                args = json.loads(args) if args.strip() else {}
+            calls.append(ToolCall(name=fn["name"], arguments=args, id=c.get("id")))
+        usage = data.get("usage") or {}
+        return LLMResponse(
+            message=Message(role="assistant", content=raw.get("content") or "", tool_calls=calls),
+            prompt_tokens=usage.get("prompt_tokens", 0),
+            completion_tokens=usage.get("completion_tokens", 0),
+        )
+
+
 # Scripted (tests and offline demos)
 
 
@@ -235,4 +333,6 @@ def make_backend(name: str) -> ChatBackend:
         return OllamaBackend()
     if name == "gemini":
         return GeminiBackend()
-    raise ValueError(f"unknown backend {name!r} (use ollama or gemini)")
+    if name == "openai":
+        return OpenAIBackend()
+    raise ValueError(f"unknown backend {name!r} (use ollama, gemini or openai)")

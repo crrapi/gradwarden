@@ -251,7 +251,11 @@ class LLMWarden:
                     continue
                 for call in msg.tool_calls:
                     result = toolbox.call(call.name, call.arguments)
-                    messages.append(Message(role="tool", content=result, tool_name=call.name))
+                    messages.append(
+                        Message(
+                            role="tool", content=result, tool_name=call.name, tool_call_id=call.id
+                        )
+                    )
                     diag.transcript.append({"role": "tool", "name": call.name, "content": result})
                 if toolbox.decision is not None:
                     break

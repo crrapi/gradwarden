@@ -1,4 +1,10 @@
-from gradwarden.agent.llm import GeminiBackend, OllamaBackend, ScriptedBackend, make_backend
+from gradwarden.agent.llm import (
+    GeminiBackend,
+    OllamaBackend,
+    OpenAIBackend,
+    ScriptedBackend,
+    make_backend,
+)
 from gradwarden.agent.tools import Decision, Toolbox, tool_schemas
 from gradwarden.agent.warden import Diagnosis, LLMWarden, RulePolicy, incident_brief
 
@@ -8,6 +14,7 @@ __all__ = [
     "GeminiBackend",
     "LLMWarden",
     "OllamaBackend",
+    "OpenAIBackend",
     "RulePolicy",
     "ScriptedBackend",
     "Toolbox",
