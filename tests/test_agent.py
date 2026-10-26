@@ -233,3 +233,57 @@ def test_session_end_to_end_with_rules(tiny_cfg, data):
     assert len(store.interventions) == 1 and store.interventions[0]["applied"]
     assert store.config["model"]["qk_norm"] is True
     assert store.abandoned  # the bad branch is kept for plotting
+
+
+def test_openai_payload_and_parse():
+    from gradwarden.agent import OpenAIBackend
+
+    sent = {}
+
+    def handler(request):
+        sent["auth"] = request.headers.get("authorization")
+        sent["url"] = str(request.url)
+        sent["body"] = json.loads(request.content)
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": None,
+                            "tool_calls": [
+                                {
+                                    "id": "abc",
+                                    "type": "function",
+                                    "function": {
+                                        "name": "get_layer_breakdown",
+                                        "arguments": '{"step": 12}',
+                                    },
+                                }
+                            ],
+                        }
+                    }
+                ],
+                "usage": {"prompt_tokens": 80, "completion_tokens": 11},
+            },
+        )
+
+    be = OpenAIBackend(
+        base_url="http://box:8080/v1/", model="m", api_key="k",
+        transport=httpx.MockTransport(handler),
+    )  # fmt: skip
+    msgs = [
+        Message(role="system", content="s"),
+        Message(role="assistant", tool_calls=[ToolCall("a", {"x": 1}), ToolCall("b", {}, id="z")]),
+        Message(role="tool", content="{}", tool_name="a"),
+        Message(role="tool", content="{}", tool_name="b", tool_call_id="z"),
+    ]
+    resp = be.chat(msgs, tool_schemas())
+    body = sent["body"]
+    assert sent["url"] == "http://box:8080/v1/chat/completions" and sent["auth"] == "Bearer k"
+    calls = body["messages"][1]["tool_calls"]
+    assert calls[0]["id"] == "call_0" and json.loads(calls[0]["function"]["arguments"]) == {"x": 1}
+    assert [m["tool_call_id"] for m in body["messages"][2:]] == ["call_0", "z"]
+    assert resp.message.tool_calls[0].arguments == {"step": 12}
+    assert resp.message.tool_calls[0].id == "abc" and resp.completion_tokens == 11
