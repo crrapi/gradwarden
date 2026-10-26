@@ -24,9 +24,9 @@ yes, easily. 600 steps, no warmup, no clipping. numbers at step 560:
 
 for reference the default config (lr 3e-3 w/ warmup) peaks around 27 by step 250.
 
-so without qk-norm the attention logits just keep growing and attention goes one-hot (entropy -> 0), and loss gets worse as lr goes up. with qk-norm, logits stay < ~30 and higher lr actually helps. same story as the paper, just tiny.
+so without qk-norm the attention logits just keep growing and attention goes one-hot (entropy → 0), and loss gets worse as lr goes up. with qk-norm, logits stay < ~30 and higher lr actually helps. same story as the paper, just tiny
 
-at lr 3e-2 the logits are already at 689 by step 40. the blowup is fast.
+at lr 3e-2 the logits are already at 689 by step 40. the blowup is fast
 
 ## thresholds
 
@@ -58,3 +58,17 @@ picked from the probe above, not tuned on the demo runs:
 ## sweep (600 steps, warmup 100, no clip)
 
 see readme table. short version: baseline best = 1.899 @ 3e-3, qk-norm best = 1.774 @ 1e-2, and qk-norm keeps max attn logit < 25 at every lr up to 0.3 (baseline hits 333k).
+
+## demo, 2026-10-28
+
+- no intervention: 42 alerts (logit growth + entropy collapse firing every 25 steps bc of cooldown), val 2.457
+- rules: 1 alert @ step 92 (layer 1, 207.5). rewind picks the newest ckpt where the metric was < threshold/2 → step 75. val 1.931
+- ollama/qwen: first call queued behind other jobs on the server for the whole 600s client timeout. warden fell back to rules, logged `fallback_used: true`, turns 0. result was identical to the rules run so i left it out of the figure instead of labeling it "agent" and misleading anyone. todo: rerun when the box is quiet, or point OLLAMA_HOST at a local ollama
+
+## random stuff i hit
+
+- forgot to divide entropy by log(visible_keys) at first and it was in [0, log t] which made the threshold meaningless across different seq lens
+- `jnp.where(mask, probs * jnp.log(probs), 0)` nans when probs=0 even w/ the where. gotta clip inside the log too
+- optax `optax.tree.norm` vs `jnp.linalg.norm` for leaves — different return shapes, use `tree.norm` on dict subtrees, `linalg.norm` on arrays
+- first version of rewind reused the optimizer object across patches. opt state kept the OLD lr schedule bc the schedule was captured at init. had to rebuild the optimizer on every patch, see `_build`
+- flax tree equality for the qk_norm trick: `tree_structure(a) == tree_structure(b)` is the actual check, not `tree_map(lambda _: True)`
