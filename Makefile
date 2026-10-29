@@ -1,4 +1,4 @@
-.PHONY: install test lint demo sweep
+.PHONY: install test lint demo sweep bench
 
 install:
 	uv sync
@@ -17,3 +17,8 @@ demo:
 
 sweep:
 	uv run python experiments/lr_sweep.py --steps 600 --out runs/sweep
+
+# every scenario x none/rules/rules-early. add POLICIES="... ollama" to include the agent
+BENCH_POLICIES ?= none rules rules-early
+bench:
+	uv run python experiments/bench.py --steps 600 --out runs/bench --policies $(BENCH_POLICIES)
