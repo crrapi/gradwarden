@@ -11,10 +11,12 @@ proposing the same fix twice.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
-from gradwarden.agent.tools import Toolbox
+from gradwarden import notify
+from gradwarden.agent.tools import Decision, Toolbox
 from gradwarden.agent.warden import Diagnosis
 from gradwarden.config import RunConfig
 from gradwarden.data import CharDataset
@@ -69,6 +71,10 @@ class Session:
     early: bool = False
     ckpt_dir: Any = None  # Path, where Trainer mirrors ckpts to disk. None = memory only
     trainer: Trainer | None = None  # built in post_init unless resume() hands one in
+    notifier: notify.Notifier = field(default_factory=notify.NullNotifier)
+    # human in the loop. gets (alert, decision) before a patch is applied, False = veto.
+    # None = apply everything the policy says (the default, its an on call agent)
+    approve: Callable[[Alert, Decision], bool] | None = None
     diagnoses: list[Diagnosis] = field(default_factory=list)
     _watch: _Watch | None = None
     _pending: Alert | None = None
@@ -119,6 +125,9 @@ class Session:
         }
         self.store.add_followup(entry)
         self.store.interventions[w.index]["outcome"] = outcome
+        self.notifier.notify(
+            "followup", f"intervention {w.index} {outcome} (checked at step {step})", entry
+        )
         log.info("intervention %d %s (checked at step %d)", w.index, outcome, step)
         self._watch = None
 
@@ -141,6 +150,8 @@ class Session:
         for alert in alerts:
             self.store.add_alert(alert)
             log.info("step %d ALERT %s: %s", alert.step, alert.kind, alert.message)
+            if alert.severity == "critical":
+                self.notifier.notify("alert", notify.describe_alert(alert), alert.to_dict())
         self._check_watch(record, alerts)
         critical = [a for a in alerts if a.severity == "critical"]
         if not critical or self.policy is None:
@@ -154,6 +165,11 @@ class Session:
         return Toolbox(
             store=self.store, checkpoint_steps=[c.step for c in self.trainer.checkpoints]
         )
+
+    def _record_intervention(self, entry: dict[str, Any]) -> None:
+        self.store.add_intervention(entry)
+        slim = {k: v for k, v in entry.items() if k not in ("transcript", "config_before")}
+        self.notifier.notify("intervention", notify.describe_intervention(entry), slim)
 
     def _intervene(self, alert: Alert) -> None:
         if self._watch is not None:
@@ -169,7 +185,12 @@ class Session:
         if decision is None or decision.action != "patch":
             log.info("no action: %s", decision.rationale if decision else "no decision")
             entry["applied"] = False
-            self.store.add_intervention(entry)
+            self._record_intervention(entry)
+            return
+        if self.approve is not None and not self.approve(alert, decision):
+            log.info("patch %s vetoed", decision.changes)
+            entry.update(applied=False, rejected=True)
+            self._record_intervention(entry)
             return
         before = self.trainer.cfg
         self.trainer.apply_patch(decision.changes)
@@ -183,7 +204,7 @@ class Session:
             redo_steps=alert.step + 1 - restored,
             config_before=before.to_dict(),
         )
-        self.store.add_intervention(entry)
+        self._record_intervention(entry)
         self._watch = _Watch(
             index=len(self.store.interventions) - 1,
             family=family(alert.kind),
