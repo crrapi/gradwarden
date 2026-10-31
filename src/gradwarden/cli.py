@@ -1,4 +1,6 @@
-"""cli entrypoints: train | watch | resume | diagnose | report | postmortem | scenarios"""
+"""cli entrypoints:
+train | watch | resume | diagnose | report | postmortem | scenarios | compare | tail
+"""
 
 from __future__ import annotations
 
@@ -39,6 +41,8 @@ def _add_session_args(p: argparse.ArgumentParser) -> None:
     )
     p.add_argument("--max-interventions", type=int, default=3)
     p.add_argument("--verify-window", type=int, default=75)
+    p.add_argument("--webhook", help="slack/discord webhook url (default $GRADWARDEN_WEBHOOK)")
+    p.add_argument("--approve", action="store_true", help="ask y/n before applying a patch")
 
 
 def _config(args, vocab_size: int) -> RunConfig:
@@ -80,12 +84,33 @@ def _policy(name: str):
     return LLMWarden(backend=make_backend(name))
 
 
+def _ask(alert, decision) -> bool:
+    print(f"\n[{alert.kind} @ step {alert.step}] {alert.message}", file=sys.stderr)
+    print(f"  proposed: {decision.changes}, rewind to {decision.rewind_to_step}", file=sys.stderr)
+    print(f"  why: {decision.rationale}", file=sys.stderr)
+    try:
+        return input("apply? [y/N] ").strip().lower() in ("y", "yes")
+    except EOFError:  # no tty, dont hang
+        return False
+
+
 def _session_kw(args) -> dict:
-    return {
+    from gradwarden import notify
+
+    name = args.run_dir.name
+    kw = {
         "early": args.early,
         "max_interventions": args.max_interventions,
         "verify_window": args.verify_window,
+        "notifier": (
+            notify.WebhookNotifier(url=args.webhook, run_name=name)
+            if args.webhook
+            else notify.from_env(name)
+        ),
     }
+    if args.approve:
+        kw["approve"] = _ask
+    return kw
 
 
 def cmd_run(args, policy_name: str) -> int:
@@ -211,6 +236,59 @@ def cmd_postmortem(args) -> int:
     return 0
 
 
+def cmd_compare(args) -> int:
+    from gradwarden.report import plot_compare
+    from gradwarden.store import RunStore
+
+    runs = {p.name: RunStore.load(p) for p in args.run_dirs}
+    rows = []
+    for name, st in runs.items():
+        vals = [r["val_loss"] for r in st.records if "val_loss" in r]
+        logits = [max(r["attn_logit_max"]) for r in st.records if r.get("attn_logit_max")]
+        rows.append(
+            (
+                name,
+                f"{vals[-1]:.3f}" if vals else "-",
+                f"{min(vals):.3f}" if vals else "-",
+                f"{max(logits):.1f}" if logits else "-",
+                str(len(st.alerts)),
+                str(sum(1 for i in st.interventions if i.get("applied"))),
+            )
+        )
+    head = ("run", "final val", "best val", "peak logit", "alerts", "patches")
+    widths = [max(len(r[i]) for r in [head, *rows]) for i in range(len(head))]
+    for r in [head, *rows]:
+        print("  ".join(c.ljust(w) for c, w in zip(r, widths, strict=True)))
+
+    # config diff, only keys that differ between any two runs
+    flat = {}
+    for name, st in runs.items():
+        flat[name] = {
+            f"{sec}.{k}": v for sec, d in st.config.items() if isinstance(d, dict)
+            for k, v in d.items()
+        }  # fmt: skip
+    keys = sorted({k for d in flat.values() for k in d})
+    diff = [k for k in keys if len({json.dumps(d.get(k)) for d in flat.values()}) > 1]
+    if diff:
+        print("\nfinal config diff:")
+        for k in diff:
+            print(f"  {k}: " + ", ".join(f"{n}={flat[n].get(k)}" for n in runs))
+    if args.out:
+        plot_compare(runs, args.out, title=" vs ".join(runs))
+        print(args.out)
+    return 0
+
+
+def cmd_tail(args) -> int:
+    from gradwarden.live import tail
+
+    try:
+        tail(args.run_dir, sys.stdout, every=args.every, follow=not args.once)
+    except KeyboardInterrupt:
+        pass
+    return 0
+
+
 def cmd_scenarios(args) -> int:
     from gradwarden.scenarios import SCENARIOS
 
@@ -257,6 +335,15 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("scenarios", help="list the named broken configs")
 
+    p_cmp = sub.add_parser("compare", help="side by side table + config diff for runs")
+    p_cmp.add_argument("run_dirs", type=Path, nargs="+")
+    p_cmp.add_argument("--out", type=Path, help="also write an overlay plot here")
+
+    p_tail = sub.add_parser("tail", help="follow a run thats training (from another shell)")
+    p_tail.add_argument("run_dir", type=Path)
+    p_tail.add_argument("--every", type=int, default=10)
+    p_tail.add_argument("--once", action="store_true", help="print whats there and exit")
+
     args = parser.parse_args(argv)
     # only our logger at info. jax/matplotlib stay at warning or they drown it out
     logging.basicConfig(level=logging.WARNING, format="%(asctime)s %(message)s", datefmt="%H:%M:%S")
@@ -274,6 +361,10 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_postmortem(args)
     if args.cmd == "scenarios":
         return cmd_scenarios(args)
+    if args.cmd == "compare":
+        return cmd_compare(args)
+    if args.cmd == "tail":
+        return cmd_tail(args)
     return cmd_report(args)
 
 
