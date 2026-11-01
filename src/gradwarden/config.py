@@ -81,6 +81,9 @@ PATCHABLE: dict[str, tuple[str, Any, str]] = {
         "0..1",
     ),
     "qk_norm": ("model", lambda v: isinstance(v, bool), "true/false"),
+    # adam b2. lower = second moment adapts faster, the usual knob for loss spikes
+    # that come from a stale v estimate. 0.8 floor bc below that its basically rmsprop
+    "b2": ("train", lambda v: isinstance(v, (int, float)) and 0.8 <= v <= 0.999, "0.8..0.999"),
 }
 
 
