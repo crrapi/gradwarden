@@ -3,7 +3,7 @@
 import json
 from pathlib import Path
 
-from gradwarden.report import plot_compare, plot_lr_sweep
+from gradwarden.report import plot_bench, plot_compare, plot_lr_sweep
 from gradwarden.store import RunStore
 
 OUT = Path("docs/assets")
@@ -38,3 +38,10 @@ for name in ("demo-none", "demo-rules", "demo-ollama", "demo-gemini"):
             (RES / f"{name}.{f}").write_text((p / f).read_text())
 if sweep.exists():
     (RES / "lr_sweep.json").write_text(sweep.read_text())
+
+bench = Path("runs/bench/bench.json")
+if bench.exists():
+    plot_bench(json.loads(bench.read_text()), OUT / "bench.png")
+    print(OUT / "bench.png")
+    (RES / "bench.json").write_text(bench.read_text())
+    (RES / "bench.md").write_text(Path("runs/bench/bench.md").read_text())

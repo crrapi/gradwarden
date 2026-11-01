@@ -82,3 +82,23 @@ def test_cli_config_applies_scenario():
     cfg = cli._config(args, vocab_size=65)
     # scenario wins over the cli lr, thats the point of it
     assert cfg.train.lr == 0.3 and cfg.train.clip_norm is None and cfg.model.vocab_size == 65
+
+
+def test_plots_dont_crash(tiny_cfg, data, tmp_path):
+    import dataclasses
+
+    from gradwarden.report import plot_bench, plot_run
+
+    cfg = dataclasses.replace(
+        tiny_cfg,
+        train=dataclasses.replace(tiny_cfg.train, lr=0.1, warmup_steps=0, clip_norm=None),
+    )
+    suite = DetectorSuite(detectors=[PerLayerThreshold(metric="attn_logit_max", threshold=60.0)])
+    store = Session(cfg, data, RunStore(), policy=RulePolicy(), detectors=suite).run(40)
+    store.add_alert(Alert(5, "attn_logit_forecast", "warn", 30.0, 200.0, "x", layer=0))
+    assert plot_run(store, tmp_path / "d.png").stat().st_size > 0
+    rows = [
+        {"scenario": "a", "policy": p, "final_val_loss": v, "interventions": n}
+        for p, v, n in (("none", 2.4, 0), ("rules", 1.9, 1))
+    ] + [{"scenario": "b", "policy": "none", "final_val_loss": None, "interventions": 0}]
+    assert plot_bench(rows, tmp_path / "b.png").stat().st_size > 0

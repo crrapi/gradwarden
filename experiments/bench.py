@@ -16,6 +16,7 @@ from gradwarden.agent import LLMWarden, RulePolicy, make_backend
 from gradwarden.config import ModelConfig, RunConfig, TrainConfig
 from gradwarden.data import CharDataset, load_tiny_shakespeare
 from gradwarden.postmortem import render
+from gradwarden.report import plot_bench, plot_run
 from gradwarden.scenarios import SCENARIOS
 from gradwarden.session import Session
 from gradwarden.store import RunStore
@@ -43,6 +44,7 @@ def run_one(data, scenario, policy_name, steps, out):
     Session(cfg, data, store, policy=make(), early=early).run(steps)
     wall = time.perf_counter() - t0
     (out / "POSTMORTEM.md").write_text(render(store, out.name))
+    plot_run(store, out / "dynamics.png", title=out.name)
     vals = [r["val_loss"] for r in store.records if "val_loss" in r]
     applied = [iv for iv in store.interventions if iv.get("applied")]
     return {
@@ -102,6 +104,7 @@ def main():
             rows.append(row)
             path.write_text(json.dumps(rows, indent=2))
     (args.out / "bench.md").write_text(to_markdown(rows))
+    plot_bench(rows, args.out / "bench.png")
     print(to_markdown(rows))
 
 
