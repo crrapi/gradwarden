@@ -7,6 +7,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -81,7 +82,9 @@ def _policy(name: str):
         return None
     if name == "rules":
         return RulePolicy()
-    return LLMWarden(backend=make_backend(name))
+    # whole-diagnosis budget. the ollama queue thing from the first demo (see NOTES)
+    deadline = os.environ.get("GRADWARDEN_LLM_DEADLINE")
+    return LLMWarden(backend=make_backend(name), deadline_s=float(deadline) if deadline else None)
 
 
 def _ask(alert, decision) -> bool:

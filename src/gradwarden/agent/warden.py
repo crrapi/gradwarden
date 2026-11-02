@@ -37,7 +37,7 @@ Known failure modes and standard fixes:
   (Wortsman et al. 2023). Fix: z_loss=1e-4.
 - loss_spike / grad_norm_spike without the above: usually too high a learning rate
   or a bad batch. Fix: lower lr (about 0.5x) and/or set clip_norm=1.0; add warmup
-  if warmup_steps is 0.
+  if warmup_steps is 0. If b2 is high (0.99+), lowering it to 0.95 also helps.
 - non_finite: the run already diverged. Rewind well before the blow-up and lower lr.
 - adam_epsilon: gradient RMS near Adam eps shrinks updates. Fix: lower eps (e.g. 1e-15).
 - val_divergence: val loss rising while train loss falls. Usually overfitting, not an
@@ -46,7 +46,8 @@ Known failure modes and standard fixes:
 Rules:
 - Prefer the smallest change that addresses the root cause.
 - Rewind to a step BEFORE the problem started (look at when the bad metric first
-  left its normal range), using one of the listed checkpoint steps.
+  left its normal range, find_onset does this), using one of the listed checkpoint
+  steps.
 - If the alert is benign (a small blip that is already recovering), call
   declare_no_action.
 - If an earlier intervention for the same problem shows outcome=refired, that fix was
@@ -205,6 +206,26 @@ class LLMWarden:
     max_turns: int = 6
     max_nudges: int = 2
     fallback: RulePolicy | None = field(default_factory=RulePolicy)
+    # one retry per call on connection errors / 5xx. a 4xx means the request itself
+    # is wrong so retrying it just waists the queue slot
+    retries: int = 1
+    retry_wait_s: float = 5.0
+    # give up and fall back once this many seconds have gone by. checked between
+    # turns. the backend timeout still applies to each single call
+    deadline_s: float | None = None
+    sleep: Any = time.sleep  # swapped out in tests
+
+    def _chat(self, messages, schemas):
+        import httpx
+
+        for attempt in range(self.retries + 1):
+            try:
+                return self.backend.chat(messages, schemas)
+            except (httpx.TransportError, httpx.HTTPStatusError) as e:
+                status = getattr(getattr(e, "response", None), "status_code", 500)
+                if attempt >= self.retries or status < 500:
+                    raise
+                self.sleep(self.retry_wait_s * (attempt + 1))
 
     @property
     def name(self) -> str:
@@ -223,7 +244,11 @@ class LLMWarden:
         error: str | None = None
         try:
             for _ in range(self.max_turns):
-                resp = self.backend.chat(messages, schemas)
+                if self.deadline_s is not None and time.perf_counter() - t0 > self.deadline_s:
+                    error = f"deadline {self.deadline_s:g}s hit after {diag.turns} turns"
+                    diag.transcript.append({"role": "error", "content": error})
+                    break
+                resp = self._chat(messages, schemas)
                 diag.turns += 1
                 diag.prompt_tokens += resp.prompt_tokens
                 diag.completion_tokens += resp.completion_tokens
