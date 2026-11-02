@@ -127,6 +127,42 @@ class Toolbox:
                 out[key] = [[_r(x) for x in a[key]], [_r(x) for x in b[key]]]
         return {"steps": [int(step_a), int(step_b)], "values": out}
 
+    def find_onset(
+        self, metric: str, layer: int | str | None = None, factor: float = 2.0, baseline: int = 20
+    ) -> dict[str, Any]:
+        """first step where the metric went `factor`x past its early baseline (median of
+        the first `baseline` points) and stayed there. thats usually the right rewind
+        target, more precise than eyeballing the downsampled window"""
+        if metric not in ALL_METRICS:
+            return {"error": f"unknown metric {metric!r}", "valid": list(ALL_METRICS)}
+        pts = self.store.series(metric, layer=layer)
+        if metric == "attn_entropy" and layer is None:
+            pts = [(r["step"], min(r[metric])) for r in self.store.records if metric in r]
+        pts = [(s, v) for s, v in pts if math.isfinite(v)]
+        if len(pts) <= baseline:
+            return {"error": f"need more than {baseline} points, have {len(pts)}"}
+        base = sorted(v for _, v in pts[:baseline])[baseline // 2]
+        # entropy going down is the bad direction, everything else going up
+        down = metric == "attn_entropy"
+
+        def bad(v):
+            return v < base / factor if down else v > base * factor
+
+        onset = None
+        for i, (s, v) in enumerate(pts):
+            if bad(v) and all(bad(x) for _, x in pts[i:]):
+                onset = s
+                break
+        before = [s for s in self.checkpoint_steps if onset is not None and s < onset]
+        return {
+            "metric": metric,
+            "layer": layer,
+            "baseline": _r(base),
+            "factor": factor,
+            "onset_step": onset,
+            "last_checkpoint_before": before[-1] if before else None,
+        }
+
     def get_intervention_history(self) -> dict[str, Any]:
         """past patches in this run + whether they held. so the model doesnt just
         propose qk_norm=true a second time when its already on"""
@@ -177,6 +213,7 @@ class Toolbox:
             "get_layer_breakdown": self.get_layer_breakdown,
             "compare_steps": self.compare_steps,
             "get_intervention_history": self.get_intervention_history,
+            "find_onset": self.find_onset,
             "propose_patch": self.propose_patch,
             "declare_no_action": self.declare_no_action,
         }
@@ -196,7 +233,7 @@ def tool_schemas() -> list[dict[str, Any]]:
     patch_props = {
         k: {"description": f"allowed range {rng}"} for k, (_, _, rng) in PATCHABLE.items()
     }
-    for k in ("lr", "z_loss", "eps", "weight_decay"):
+    for k in ("lr", "z_loss", "eps", "weight_decay", "b2"):
         patch_props[k]["type"] = "number"
     patch_props["warmup_steps"]["type"] = "integer"
     patch_props["clip_norm"]["type"] = "number"
@@ -239,6 +276,23 @@ def tool_schemas() -> list[dict[str, Any]]:
                 "type": "object",
                 "properties": {"step_a": {"type": "integer"}, "step_b": {"type": "integer"}},
                 "required": ["step_a", "step_b"],
+            },
+        },
+        {
+            "name": "find_onset",
+            "description": (
+                "First step where a metric moved `factor`x away from its early baseline "
+                "and never came back, plus the newest checkpoint before that. Use it to "
+                "pick rewind_to_step."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "metric": {"type": "string", "enum": list(ALL_METRICS)},
+                    "layer": {"type": "integer"},
+                    "factor": {"type": "number"},
+                },
+                "required": ["metric"],
             },
         },
         {
