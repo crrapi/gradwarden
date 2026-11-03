@@ -103,6 +103,10 @@ def main():
             print(json.dumps(row), flush=True)
             rows.append(row)
             path.write_text(json.dumps(rows, indent=2))
+    # reruns append at the end, put them back in scenario / policy order for the table
+    order = {n: i for i, n in enumerate([*SCENARIOS, *POLICIES])}
+    rows.sort(key=lambda r: (order.get(r["scenario"], 99), order.get(r["policy"], 99)))
+    path.write_text(json.dumps(rows, indent=2))
     (args.out / "bench.md").write_text(to_markdown(rows))
     plot_bench(rows, args.out / "bench.png")
     print(to_markdown(rows))
