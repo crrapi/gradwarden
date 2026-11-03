@@ -84,3 +84,19 @@ def test_rules_escalate_z_loss_and_wd():
     assert RulePolicy().decide(a, tb).decision.changes == {"z_loss": 1e-3}
     a = Alert(4, "val_divergence", "warn", 2.5, 2.1, "x")
     assert RulePolicy().decide(a, tb).decision.changes == {"weight_decay": 0.2}
+
+
+def test_rules_switch_to_lr_after_refire():
+    store = RunStore()
+    store.set_config({"model": {}, "train": {"lr": 0.3, "z_loss": 1e-4, "warmup_steps": 0}})
+    for s in range(5):
+        store.add_record({"step": s, "loss": 2.0, "log_z_mean": 50.0})
+    store.add_intervention(
+        {"alert": {"step": 2, "kind": "output_logit_divergence"}, "applied": True,
+         "changes": {"z_loss": 1e-4}, "outcome": "refired"}
+    )  # fmt: skip
+    tb = Toolbox(store=store, checkpoint_steps=[0])
+    a = Alert(4, "output_logit_divergence", "critical", 50.0, 30.0, "x")
+    d = RulePolicy().decide(a, tb).decision
+    assert d.changes == {"lr": 0.09, "warmup_steps": 100, "clip_norm": 1.0}
+    assert "escalating" in d.rationale

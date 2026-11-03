@@ -15,6 +15,25 @@ PER_LAYER = ("attn_logit_max", "attn_entropy", "act_rms")
 PER_MODULE = ("grad_norm_by_module", "update_ratio_by_module")
 
 
+# alerts that are really the same problem. qk_norm fixes all of attention, so if
+# entropy collapses right after a logit growth fix thats a refire, not a new thing
+FAMILIES = {
+    "attn_logit_growth": "attention",
+    "attn_logit_forecast": "attention",
+    "attn_entropy_collapse": "attention",
+    "output_logit_divergence": "output",
+    "loss_spike": "optimizer",
+    "grad_norm_spike": "optimizer",
+    "non_finite": "optimizer",
+    "adam_epsilon": "adam_eps",
+    "val_divergence": "generalization",
+}
+
+
+def family(kind: str) -> str:
+    return FAMILIES.get(kind, kind)
+
+
 @dataclass
 class Alert:
     step: int

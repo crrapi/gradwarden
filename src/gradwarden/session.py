@@ -21,28 +21,10 @@ from gradwarden.agent.warden import Diagnosis
 from gradwarden.config import RunConfig
 from gradwarden.data import CharDataset
 from gradwarden.detectors import DetectorSuite
-from gradwarden.store import Alert, RunStore
+from gradwarden.store import FAMILIES, Alert, RunStore, family  # noqa: F401
 from gradwarden.train import Trainer
 
 log = logging.getLogger("gradwarden")
-
-# alerts that are really the same problem. qk_norm fixes all of attention, so if
-# entropy collapses right after a logit growth fix thats a refire, not a new thing
-FAMILIES = {
-    "attn_logit_growth": "attention",
-    "attn_logit_forecast": "attention",
-    "attn_entropy_collapse": "attention",
-    "output_logit_divergence": "output",
-    "loss_spike": "optimizer",
-    "grad_norm_spike": "optimizer",
-    "non_finite": "optimizer",
-    "adam_epsilon": "adam_eps",
-    "val_divergence": "generalization",
-}
-
-
-def family(kind: str) -> str:
-    return FAMILIES.get(kind, kind)
 
 
 class Policy(Protocol):

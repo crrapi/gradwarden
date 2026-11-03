@@ -19,7 +19,7 @@ from typing import Any
 
 from gradwarden.agent.llm import ChatBackend, Message
 from gradwarden.agent.tools import Decision, Toolbox, downsample, tool_schemas
-from gradwarden.store import Alert
+from gradwarden.store import Alert, family
 
 PLAYBOOK = """\
 You are gradwarden, an on-call engineer for a Transformer pretraining run.
@@ -156,11 +156,35 @@ class RulePolicy:
         lr = float(train_cfg.get("lr", 1e-3))
         kind = alert.kind
         note = ""
+        refired = [
+            iv
+            for iv in toolbox.store.interventions
+            if iv.get("outcome") == "refired" and family(iv["alert"]["kind"]) == family(kind)
+        ]
+        if refired and kind != "val_divergence":
+            # the targeted fix already came back at least once. found this on the
+            # hot_start bench: log Z blows up at step 2 from lr 0.3 w/ no warmup and
+            # z_loss 1e-4 -> 1e-3 -> 1e-2 does nothing. go after the lr instead
+            changes: dict[str, Any] = {"lr": max(lr * 0.3, 1e-6)}
+            if int(train_cfg.get("warmup_steps", 0)) == 0:
+                changes["warmup_steps"] = 100
+            if train_cfg.get("clip_norm") is None:
+                changes["clip_norm"] = 1.0
+            rewind = self._rewind_point(alert, toolbox, None)
+            result = toolbox.propose_patch(
+                changes,
+                cause=kind,
+                rationale=f"{kind} came back after {len(refired)} fix(es), escalating to lr",
+                rewind_to_step=rewind,
+            )
+            if not result["accepted"]:
+                toolbox.declare_no_action(f"rule patch rejected: {result['problems']}")
+            return Diagnosis(decision=toolbox.decision, policy=self.name)
         if kind in ("attn_logit_growth", "attn_entropy_collapse", "attn_logit_forecast"):
             metric = "attn_entropy" if kind == "attn_entropy_collapse" else "attn_logit_max"
             if model_cfg.get("qk_norm"):
                 # already on and it came back anyway. next thing in the textbook is lr
-                changes: dict[str, Any] = {"lr": lr * 0.5}
+                changes = {"lr": lr * 0.5}
                 if train_cfg.get("clip_norm") is None:
                     changes["clip_norm"] = 1.0
                 note = " (qk_norm already on, escalating to lr)"
