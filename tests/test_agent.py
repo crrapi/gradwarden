@@ -287,3 +287,82 @@ def test_openai_payload_and_parse():
     assert [m["tool_call_id"] for m in body["messages"][2:]] == ["call_0", "z"]
     assert resp.message.tool_calls[0].arguments == {"step": 12}
     assert resp.message.tool_calls[0].id == "abc" and resp.completion_tokens == 11
+
+
+def test_find_onset():
+    store, _ = make_store(n=60, blowup_at=40)
+    tb = Toolbox(store=store, checkpoint_steps=[0, 25, 50])
+    out = tb.find_onset("attn_logit_max", layer=0)
+    # 8 * 1.5**k passes 16 (2x baseline) at k=2 -> step 41
+    assert out["onset_step"] == 41 and out["last_checkpoint_before"] == 25
+    assert tb.find_onset("attn_logit_max", layer=1)["onset_step"] is None  # flat layer
+    assert "error" in tb.find_onset("vibes")
+    assert "error" in Toolbox(store=RunStore()).find_onset("loss")
+
+
+def test_b2_is_patchable():
+    from gradwarden.config import validate_patch
+
+    assert validate_patch({"b2": 0.95}) == []
+    assert validate_patch({"b2": 0.5}) and validate_patch({"b2": 1.0})
+    schema = next(s for s in tool_schemas() if s["name"] == "propose_patch")
+    assert schema["parameters"]["properties"]["changes"]["properties"]["b2"]["type"] == "number"
+
+
+class Flaky:
+    name = "flaky"
+
+    def __init__(self, errors, then):
+        self.errors, self.then, self.calls = list(errors), then, 0
+
+    def chat(self, messages, tools):
+        self.calls += 1
+        if self.errors:
+            raise self.errors.pop(0)
+        return self.then.chat(messages, tools)
+
+
+def _patch_script():
+    return ScriptedBackend.from_calls(
+        [
+            (
+                "propose_patch",
+                {
+                    "changes": {"qk_norm": True},
+                    "cause": "a",
+                    "rationale": "b",
+                    "rewind_to_step": 25,
+                },
+            )
+        ]
+    )
+
+
+def test_warden_retries_transport_errors():
+    store, alert = make_store()
+    be = Flaky([httpx.ConnectError("box down")], _patch_script())
+    waits = []
+    w = LLMWarden(backend=be, sleep=waits.append)
+    diag = w.decide(alert, Toolbox(store=store, checkpoint_steps=[0, 25, 50]))
+    assert be.calls == 2 and waits == [5.0] and not diag.fallback_used
+
+
+def test_warden_doesnt_retry_4xx():
+    store, alert = make_store()
+    req = httpx.Request("POST", "http://x")
+    err = httpx.HTTPStatusError("bad", request=req, response=httpx.Response(400, request=req))
+    be = Flaky([err], _patch_script())
+    diag = LLMWarden(backend=be, sleep=lambda s: None).decide(
+        alert, Toolbox(store=store, checkpoint_steps=[0, 25, 50])
+    )
+    assert be.calls == 1 and diag.fallback_used
+    assert diag.transcript[-1]["role"] == "error"
+
+
+def test_warden_deadline_falls_back():
+    store, alert = make_store()
+    be = _patch_script()
+    diag = LLMWarden(backend=be, deadline_s=0.0).decide(
+        alert, Toolbox(store=store, checkpoint_steps=[0, 25, 50])
+    )
+    assert diag.turns == 0 and diag.fallback_used and "deadline" in diag.transcript[0]["content"]
