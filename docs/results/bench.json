@@ -1,0 +1,272 @@
+[
+  {
+    "scenario": "logit_growth",
+    "policy": "none",
+    "final_val_loss": 2.457300066947937,
+    "best_val_loss": 2.457300066947937,
+    "alerts": 46,
+    "critical_alerts": 42,
+    "interventions": 0,
+    "redo_steps": 0,
+    "first_patch_step": null,
+    "outcomes": [],
+    "fallback_used": false,
+    "final_config": {
+      "lr": 0.03,
+      "eps": 1e-08,
+      "clip_norm": null,
+      "z_loss": 0.0,
+      "qk_norm": false
+    },
+    "wall_s": 84.2
+  },
+  {
+    "scenario": "logit_growth",
+    "policy": "rules",
+    "final_val_loss": 1.930883675813675,
+    "best_val_loss": 1.930883675813675,
+    "alerts": 4,
+    "critical_alerts": 1,
+    "interventions": 1,
+    "redo_steps": 18,
+    "first_patch_step": 92,
+    "outcomes": [
+      "held"
+    ],
+    "fallback_used": false,
+    "final_config": {
+      "lr": 0.03,
+      "eps": 1e-08,
+      "clip_norm": null,
+      "z_loss": 0.0,
+      "qk_norm": true
+    },
+    "wall_s": 85.1
+  },
+  {
+    "scenario": "logit_growth",
+    "policy": "rules-early",
+    "final_val_loss": 1.8149117231369019,
+    "best_val_loss": 1.8149117231369019,
+    "alerts": 1,
+    "critical_alerts": 1,
+    "interventions": 1,
+    "redo_steps": 4,
+    "first_patch_step": 28,
+    "outcomes": [
+      "held"
+    ],
+    "fallback_used": false,
+    "final_config": {
+      "lr": 0.03,
+      "eps": 1e-08,
+      "clip_norm": null,
+      "z_loss": 0.0,
+      "qk_norm": true
+    },
+    "wall_s": 84.9
+  },
+  {
+    "scenario": "hot_start",
+    "policy": "none",
+    "final_val_loss": 3.153180778026581,
+    "best_val_loss": 3.112853705883026,
+    "alerts": 55,
+    "critical_alerts": 52,
+    "interventions": 0,
+    "redo_steps": 0,
+    "first_patch_step": null,
+    "outcomes": [],
+    "fallback_used": false,
+    "final_config": {
+      "lr": 0.3,
+      "eps": 1e-08,
+      "clip_norm": null,
+      "z_loss": 0.0,
+      "qk_norm": false
+    },
+    "wall_s": 73.7
+  },
+  {
+    "scenario": "hot_start",
+    "policy": "rules",
+    "final_val_loss": 1.9399165511131287,
+    "best_val_loss": 1.9399165511131287,
+    "alerts": 5,
+    "critical_alerts": 5,
+    "interventions": 3,
+    "redo_steps": 9,
+    "first_patch_step": 2,
+    "outcomes": [
+      "superseded",
+      "refired",
+      "held"
+    ],
+    "fallback_used": false,
+    "final_config": {
+      "lr": 0.09,
+      "eps": 1e-08,
+      "clip_norm": 1.0,
+      "z_loss": 0.0001,
+      "qk_norm": true
+    },
+    "wall_s": 83.4
+  },
+  {
+    "scenario": "hot_start",
+    "policy": "rules-early",
+    "final_val_loss": 1.9399165511131287,
+    "best_val_loss": 1.9399165511131287,
+    "alerts": 5,
+    "critical_alerts": 5,
+    "interventions": 3,
+    "redo_steps": 9,
+    "first_patch_step": 2,
+    "outcomes": [
+      "superseded",
+      "refired",
+      "held"
+    ],
+    "fallback_used": false,
+    "final_config": {
+      "lr": 0.09,
+      "eps": 1e-08,
+      "clip_norm": 1.0,
+      "z_loss": 0.0001,
+      "qk_norm": true
+    },
+    "wall_s": 81.9
+  },
+  {
+    "scenario": "qk_not_enough",
+    "policy": "none",
+    "final_val_loss": 2.9164083003997803,
+    "best_val_loss": 2.9164083003997803,
+    "alerts": 62,
+    "critical_alerts": 60,
+    "interventions": 0,
+    "redo_steps": 0,
+    "first_patch_step": null,
+    "outcomes": [],
+    "fallback_used": false,
+    "final_config": {
+      "lr": 1.0,
+      "eps": 1e-08,
+      "clip_norm": null,
+      "z_loss": 0.0,
+      "qk_norm": true
+    },
+    "wall_s": 74.8
+  },
+  {
+    "scenario": "qk_not_enough",
+    "policy": "rules",
+    "final_val_loss": 2.114729166030884,
+    "best_val_loss": 2.114729166030884,
+    "alerts": 2,
+    "critical_alerts": 2,
+    "interventions": 2,
+    "redo_steps": 6,
+    "first_patch_step": 2,
+    "outcomes": [
+      "refired",
+      "held"
+    ],
+    "fallback_used": false,
+    "final_config": {
+      "lr": 0.3,
+      "eps": 1e-08,
+      "clip_norm": 1.0,
+      "z_loss": 0.0001,
+      "qk_norm": true
+    },
+    "wall_s": 68.6
+  },
+  {
+    "scenario": "qk_not_enough",
+    "policy": "rules-early",
+    "final_val_loss": 2.114729166030884,
+    "best_val_loss": 2.114729166030884,
+    "alerts": 2,
+    "critical_alerts": 2,
+    "interventions": 2,
+    "redo_steps": 6,
+    "first_patch_step": 2,
+    "outcomes": [
+      "refired",
+      "held"
+    ],
+    "fallback_used": false,
+    "final_config": {
+      "lr": 0.3,
+      "eps": 1e-08,
+      "clip_norm": 1.0,
+      "z_loss": 0.0001,
+      "qk_norm": true
+    },
+    "wall_s": 73.2
+  },
+  {
+    "scenario": "big_eps",
+    "policy": "none",
+    "final_val_loss": 1.9341045916080475,
+    "best_val_loss": 1.9341045916080475,
+    "alerts": 24,
+    "critical_alerts": 0,
+    "interventions": 0,
+    "redo_steps": 0,
+    "first_patch_step": null,
+    "outcomes": [],
+    "fallback_used": false,
+    "final_config": {
+      "lr": 0.003,
+      "eps": 0.0001,
+      "clip_norm": 1.0,
+      "z_loss": 0.0,
+      "qk_norm": false
+    },
+    "wall_s": 69.0
+  },
+  {
+    "scenario": "big_eps",
+    "policy": "rules",
+    "final_val_loss": 1.9341045916080475,
+    "best_val_loss": 1.9341045916080475,
+    "alerts": 24,
+    "critical_alerts": 0,
+    "interventions": 0,
+    "redo_steps": 0,
+    "first_patch_step": null,
+    "outcomes": [],
+    "fallback_used": false,
+    "final_config": {
+      "lr": 0.003,
+      "eps": 0.0001,
+      "clip_norm": 1.0,
+      "z_loss": 0.0,
+      "qk_norm": false
+    },
+    "wall_s": 71.1
+  },
+  {
+    "scenario": "big_eps",
+    "policy": "rules-early",
+    "final_val_loss": 1.9341045916080475,
+    "best_val_loss": 1.9341045916080475,
+    "alerts": 24,
+    "critical_alerts": 0,
+    "interventions": 0,
+    "redo_steps": 0,
+    "first_patch_step": null,
+    "outcomes": [],
+    "fallback_used": false,
+    "final_config": {
+      "lr": 0.003,
+      "eps": 0.0001,
+      "clip_norm": 1.0,
+      "z_loss": 0.0,
+      "qk_norm": false
+    },
+    "wall_s": 71.1
+  }
+]
