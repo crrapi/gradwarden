@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Any, Protocol
@@ -121,21 +122,40 @@ class OllamaBackend:
 # Gemini
 
 
+_RETRY_CODES = {429, 500, 503}
+_GEMINI_FALLBACK = ["gemini-3.7-flash", "gemini-3.8-flash"]
+
+
 @dataclass
 class GeminiBackend:
-    """gemini generateContent rest api w/ function calling. needs GEMINI_API_KEY,
-    model from GRADWARDEN_GEMINI_MODEL
+    """gemini generateContent rest api w/ function calling. free aistudio key works
+    out of the box: set GEMINI_API_KEY, done. GRADWARDEN_GEMINI_MODEL picks the first
+    model; GRADWARDEN_GEMINI_MODELS overrides the whole fallback list (comma separated).
+    retries 429/500/503 with backoff, falls through to the next model when one is out
+    of free-tier daily cap.
     """
 
     model: str = field(
-        default_factory=lambda: os.environ.get("GRADWARDEN_GEMINI_MODEL", "gemini-2.5-flash")
+        default_factory=lambda: os.environ.get("GRADWARDEN_GEMINI_MODEL", "gemini-3.5-flash")
     )
+    models: list[str] | None = None
     api_key: str | None = field(default_factory=lambda: os.environ.get("GEMINI_API_KEY"))
     base_url: str = "https://generativelanguage.googleapis.com/v1beta"
     timeout_s: float = 120.0
     temperature: float = 0.0
+    retries: int = 3
+    backoff_s: float = 1.0
     transport: httpx.BaseTransport | None = None
     name: str = "gemini"
+    sleep: Any = field(default=time.sleep, repr=False)
+
+    def __post_init__(self) -> None:
+        if self.models is None:
+            raw = os.environ.get("GRADWARDEN_GEMINI_MODELS")
+            if raw:
+                self.models = [m.strip() for m in raw.split(",") if m.strip()]
+            else:
+                self.models = [self.model] + [m for m in _GEMINI_FALLBACK if m != self.model]
 
     def payload(self, messages: list[Message], tools: list[dict[str, Any]]) -> dict[str, Any]:
         # gemini wants system separate (systemInstruction), and tool results as
@@ -184,13 +204,32 @@ class GeminiBackend:
     def chat(self, messages, tools):
         if not self.api_key:
             raise RuntimeError("GEMINI_API_KEY is not set")
-        url = f"{self.base_url}/models/{self.model}:generateContent"
+        body = self.payload(messages, tools)
+        headers = {"x-goog-api-key": self.api_key}
+        order = self.models or [self.model]
+        last: httpx.HTTPStatusError | None = None
         with httpx.Client(timeout=self.timeout_s, transport=self.transport) as client:
-            resp = client.post(
-                url, json=self.payload(messages, tools), headers={"x-goog-api-key": self.api_key}
-            )
-            resp.raise_for_status()
-            data = resp.json()
+            for model in order:
+                url = f"{self.base_url}/models/{model}:generateContent"
+                for attempt in range(self.retries):
+                    resp = client.post(url, json=body, headers=headers)
+                    if resp.status_code < 400:
+                        return self._parse(resp.json())
+                    err = httpx.HTTPStatusError(
+                        f"{resp.status_code} on {model}", request=resp.request, response=resp
+                    )
+                    if resp.status_code not in _RETRY_CODES:
+                        raise err
+                    last = err
+                    if resp.status_code == 429 and _is_daily_cap(resp):
+                        # free tier burned for the day on this model, don't waste retries
+                        break
+                    if attempt + 1 < self.retries:
+                        self.sleep(self.backoff_s * (2**attempt))
+        assert last is not None
+        raise last
+
+    def _parse(self, data: dict[str, Any]) -> LLMResponse:
         parts = data["candidates"][0]["content"].get("parts", [])
         text = "".join(p.get("text", "") for p in parts)
         calls = [
@@ -204,6 +243,18 @@ class GeminiBackend:
             prompt_tokens=usage.get("promptTokenCount", 0),
             completion_tokens=usage.get("candidatesTokenCount", 0),
         )
+
+
+def _is_daily_cap(resp: httpx.Response) -> bool:
+    try:
+        body = resp.json()
+    except ValueError:
+        return False
+    for detail in (body.get("error", {}) or {}).get("details", []) or []:
+        for v in (detail.get("violations", []) or []):
+            if "PerDay" in (v.get("quotaId") or ""):
+                return True
+    return False
 
 
 # OpenAI compatible

@@ -105,7 +105,9 @@ uv run gradwarden train --run-dir runs/a --lr 3e-2 --warmup 100 --clip 0
 # with the agent. OLLAMA_HOST defaults to localhost:11434
 OLLAMA_HOST=http://yourbox:11434 uv run gradwarden watch --policy ollama --run-dir runs/b --lr 3e-2 --warmup 100 --clip 0
 
-# or gemini
+# or gemini. a free aistudio key (aistudio.google.com/apikey) is enough — default model
+# is gemini-3.5-flash w/ 3.7/3.8 as fallback, retries on 429/500/503, skips to the next
+# model when a free-tier daily cap hits.
 GEMINI_API_KEY=... uv run gradwarden watch --policy gemini --run-dir runs/c --lr 3e-2 --warmup 100 --clip 0
 
 # ask the agent about an alert in a run thats already done
@@ -128,7 +130,7 @@ make sweep   # lr sweep, baseline vs qk-norm
 make bench   # every scenario x none / rules / rules-early
 ```
 
-env vars: `OLLAMA_HOST`, `GRADWARDEN_OLLAMA_MODEL` (default `qwen3.5:9b-text`), `GEMINI_API_KEY`, `GRADWARDEN_GEMINI_MODEL`, `GRADWARDEN_OPENAI_BASE_URL`, `GRADWARDEN_OPENAI_API_KEY`, `GRADWARDEN_OPENAI_MODEL`, `GRADWARDEN_LLM_DEADLINE`, `GRADWARDEN_WEBHOOK`.
+env vars: `OLLAMA_HOST`, `GRADWARDEN_OLLAMA_MODEL` (default `qwen3.5:9b-text`), `GEMINI_API_KEY`, `GRADWARDEN_GEMINI_MODEL` (default `gemini-3.5-flash`), `GRADWARDEN_GEMINI_MODELS` (comma list, overrides the fallback), `GRADWARDEN_OPENAI_BASE_URL`, `GRADWARDEN_OPENAI_API_KEY`, `GRADWARDEN_OPENAI_MODEL`, `GRADWARDEN_LLM_DEADLINE`, `GRADWARDEN_WEBHOOK`.
 
 everything runs on cpu. a 600 step run is ~1-2 min on cpu.
 
