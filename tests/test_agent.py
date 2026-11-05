@@ -217,6 +217,70 @@ def test_gemini_payload_and_parse():
     assert resp.completion_tokens == 9
 
 
+def test_gemini_retry_backoff_then_falls_through_models():
+    calls: list[tuple[str, int]] = []
+    sleeps: list[float] = []
+    ok = {
+        "candidates": [{"content": {"parts": [{"text": "ok"}]}}],
+        "usageMetadata": {"promptTokenCount": 1, "candidatesTokenCount": 1},
+    }
+    daily = {"error": {"details": [{"violations": [{"quotaId": "GenerateRequestsPerDayPerProjectPerModel-FreeTier"}]}]}}
+
+    def handler(request):
+        model = request.url.path.rsplit("/", 1)[-1].split(":")[0]
+        calls.append((model, len(calls)))
+        # first model: one 429 (not daily) -> retry succeeds. then force daily cap on
+        # the second so it skips to the third and succeeds there.
+        if model == "primary" and sum(1 for m, _ in calls if m == "primary") == 1:
+            return httpx.Response(429, json={"error": {"details": [{"violations": [{"quotaId": "RequestsPerMinute"}]}]}})
+        if model == "primary":
+            return httpx.Response(200, json=ok)
+        if model == "secondary":
+            return httpx.Response(429, json=daily)
+        return httpx.Response(200, json=ok)
+
+    be = GeminiBackend(
+        api_key="k",
+        model="primary",
+        models=["primary", "secondary", "tertiary"],
+        transport=httpx.MockTransport(handler),
+        backoff_s=0.5,
+        sleep=sleeps.append,
+    )
+    first = be.chat([Message(role="user", content="hi")], tool_schemas())
+    assert [m for m, _ in calls] == ["primary", "primary"]
+    assert sleeps == [0.5]
+    assert first.message.content == "ok"
+
+    calls.clear(); sleeps.clear()
+    be = GeminiBackend(
+        api_key="k",
+        model="primary",
+        models=["secondary", "tertiary"],
+        transport=httpx.MockTransport(handler),
+        backoff_s=0.5,
+        sleep=sleeps.append,
+    )
+    second = be.chat([Message(role="user", content="hi")], tool_schemas())
+    # daily cap on secondary skips straight to tertiary without exhausting retries
+    assert [m for m, _ in calls] == ["secondary", "tertiary"]
+    assert sleeps == []
+    assert second.message.content == "ok"
+
+
+def test_gemini_default_models_include_fallback(monkeypatch):
+    monkeypatch.delenv("GRADWARDEN_GEMINI_MODELS", raising=False)
+    monkeypatch.delenv("GRADWARDEN_GEMINI_MODEL", raising=False)
+    be = GeminiBackend(api_key="k")
+    assert be.model == "gemini-3.5-flash"
+    assert be.models[0] == "gemini-3.5-flash"
+    assert "gemini-3.7-flash" in be.models and "gemini-3.8-flash" in be.models
+
+    monkeypatch.setenv("GRADWARDEN_GEMINI_MODELS", "a, b ,c")
+    be = GeminiBackend(api_key="k")
+    assert be.models == ["a", "b", "c"]
+
+
 def test_session_end_to_end_with_rules(tiny_cfg, data):
     # crank lr w/ no warmup so attn logits actually blow up, then let the rules fix it
     import dataclasses
