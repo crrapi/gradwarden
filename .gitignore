@@ -4,7 +4,7 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 runs/
-
 .data/
+.env
 *.egg-info/
 .DS_Store
