@@ -65,6 +65,21 @@ see readme table. short version: baseline best = 1.899 @ 3e-3, qk-norm best = 1.
 - rules: 1 alert @ step 92 (layer 1, 207.5). rewind picks the newest ckpt where the metric was < threshold/2 → step 75. val 1.931
 - ollama/qwen: first call queued behind other jobs on the server for the whole 600s client timeout. warden fell back to rules, logged `fallback_used: true`, turns 0. result was identical to the rules run so i left it out of the figure instead of labeling it "agent" and misleading anyone. todo: rerun when the box is quiet, or point OLLAMA_HOST at a local ollama
 
+## forecast, 2026-11-02
+
+- log-linear fit on the trailing 20 steps per layer, warn if r2 >= 0.8 and the line hits 200 within 40 steps. floor of 25 so healthy runs (which drift 10 -> 14 over hundreds of steps) dont trip it
+- replayed the saved demo-none metrics: fires at step 28 (layer 0, 25.5, doubling every ~11 steps). projected 31 steps to 200, actual crossing was step 92, growth slows down a bit after 60. early is fine, its a warning
+- full 600 step healthy run (default config): 0 forecasts, peak logit 51
+
+## bench, 2026-11-03
+
+numbers in the readme. things i didnt expect:
+
+- log Z divergence DOES fire, just not at the lrs i probed first. lr 3e-1 no warmup: |log Z| = 54 at step 2. lr 1.0 w/ qk_norm: same
+- rules v1 on those two looped on z_loss. rewind to 0, z_loss 1e-4, step 2 blows up again, 1e-3, again, 1e-2, out of interventions. z_loss cant do anything when the problem is a 0.3 lr hitting a fresh init. added "if the same family already refired, go after lr/warmup/clip". hot_start 2.386 -> 1.940, qk_not_enough 2.829 -> 2.115
+- rewind on hot_start always lands on step 0 bc theres no ckpt before step 2. redo is only 3 steps each time so its cheap
+- `superseded` shows up when a different family fires at the same step right after a patch (attn fix at step 2, then log Z at step 2 on the replay). its not a fail, the attn fix did its job, theres just a second problem
+
 ## random stuff i hit
 
 - forgot to divide entropy by log(visible_keys) at first and it was in [0, log t] which made the threshold meaningless across different seq lens
@@ -72,3 +87,5 @@ see readme table. short version: baseline best = 1.899 @ 3e-3, qk-norm best = 1.
 - optax `optax.tree.norm` vs `jnp.linalg.norm` for leaves — different return shapes, use `tree.norm` on dict subtrees, `linalg.norm` on arrays
 - first version of rewind reused the optimizer object across patches. opt state kept the OLD lr schedule bc the schedule was captured at init. had to rebuild the optimizer on every patch, see `_build`
 - flax tree equality for the qk_norm trick: `tree_structure(a) == tree_structure(b)` is the actual check, not `tree_map(lambda _: True)`
+- flax msgpack restores namedtuple opt states fine but it needs a target tree. so resume builds a fresh Trainer from the ckpt config first, then restores over it. also has to NOT save the step 0 ckpt on that build or it overwrites the real one w/ a random init (`save_initial=False`)
+- the session can pause in the middle of `trainer.run`, and the followup check runs on the alert step itself. so "refired" gets set before the policy is asked again, which is what the rule escalation relies on
