@@ -1,6 +1,6 @@
 [project]
 name = "gradwarden"
-version = "0.1.0"
+version = "0.2.0"
 description = "Training-dynamics monitoring for JAX Transformers, with an LLM agent that diagnoses and patches instabilities."
 readme = "README.md"
 license = "MIT"

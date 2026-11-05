@@ -3,4 +3,4 @@
 from gradwarden.config import ModelConfig, TrainConfig
 
 __all__ = ["ModelConfig", "TrainConfig"]
-__version__ = "0.1.0"
+__version__ = "0.2.0"
