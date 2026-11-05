@@ -224,7 +224,9 @@ def test_gemini_retry_backoff_then_falls_through_models():
         "candidates": [{"content": {"parts": [{"text": "ok"}]}}],
         "usageMetadata": {"promptTokenCount": 1, "candidatesTokenCount": 1},
     }
-    daily = {"error": {"details": [{"violations": [{"quotaId": "GenerateRequestsPerDayPerProjectPerModel-FreeTier"}]}]}}
+    daily_q = "GenerateRequestsPerDayPerProjectPerModel-FreeTier"
+    daily = {"error": {"details": [{"violations": [{"quotaId": daily_q}]}]}}
+    minute = {"error": {"details": [{"violations": [{"quotaId": "RequestsPerMinute"}]}]}}
 
     def handler(request):
         model = request.url.path.rsplit("/", 1)[-1].split(":")[0]
@@ -232,7 +234,7 @@ def test_gemini_retry_backoff_then_falls_through_models():
         # first model: one 429 (not daily) -> retry succeeds. then force daily cap on
         # the second so it skips to the third and succeeds there.
         if model == "primary" and sum(1 for m, _ in calls if m == "primary") == 1:
-            return httpx.Response(429, json={"error": {"details": [{"violations": [{"quotaId": "RequestsPerMinute"}]}]}})
+            return httpx.Response(429, json=minute)
         if model == "primary":
             return httpx.Response(200, json=ok)
         if model == "secondary":
@@ -252,7 +254,8 @@ def test_gemini_retry_backoff_then_falls_through_models():
     assert sleeps == [0.5]
     assert first.message.content == "ok"
 
-    calls.clear(); sleeps.clear()
+    calls.clear()
+    sleeps.clear()
     be = GeminiBackend(
         api_key="k",
         model="primary",

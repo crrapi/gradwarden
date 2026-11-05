@@ -251,7 +251,7 @@ def _is_daily_cap(resp: httpx.Response) -> bool:
     except ValueError:
         return False
     for detail in (body.get("error", {}) or {}).get("details", []) or []:
-        for v in (detail.get("violations", []) or []):
+        for v in detail.get("violations", []) or []:
             if "PerDay" in (v.get("quotaId") or ""):
                 return True
     return False
