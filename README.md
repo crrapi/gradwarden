@@ -164,7 +164,7 @@ tests/            66 tests, cpu, ~35s
 - 822k params on tinyshakespeare. the failure modes are the same ones from the papers (wortsman et al show they show up in small models at high lr) but this is not a claim about what happens at real scale
 - single device. no sharding
 - the log Z / output divergence detector never fired in the original probe runs. it does fire at lr >= 3e-1 (hot_start / qk_not_enough scenarios), at step 2
-- the gemini backend is only tested against mocked responses
+- the gemini backend's retry + model-fallback paths are tested against mocked responses; i have not burned an aistudio day-cap on it yet
 - ollama: tool calling verified live against qwen3.5 9b (it returns proper `tool_calls`), but a full diagnosis in the demo hasnt completed yet bc of queueing on the ollama host. see results. the bench hasnt been run w/ an llm policy either, only rules
 - openai compat backend is tested against mocked responses only
 - disk ckpts are full copies every 25 steps, fine at 822k params, would need sharded/async saving for anything real
